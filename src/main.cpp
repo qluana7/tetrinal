@@ -33,6 +33,8 @@ int main() {
     user_config __config;
     __config.hold.infinite = true;
     __config.control.inf_soft_drop = true;
+    __config.game.fps = 120;
+    __config.game.start_countdown = 9;
 
     game<
         block_color::bright,
@@ -56,8 +58,8 @@ int main() {
     }
 
     refresh();
+    flushinp();
     while (getch() == ERR);
-    while (getch() != ERR);
 
     endwin();
 }

@@ -56,6 +56,9 @@ struct user_config {
 
     struct game_config {
         u32 fps = 60;
+
+        u32 start_countdown = 3;
+        u32 restart_countdown = 3;
     } game;
 
     // TODO : Add more config options as needed

@@ -15,7 +15,9 @@ if(NOT DISABLE_ANSI)
 add_compile_definitions(ANSI_ENABLED=1)
 endif()
 
-set(CMAKE_CXX_FLAGS_DEBUG_INIT "-g -DDEBUG")
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_compile_definitions(DEBUG=1)
+endif()
 
 add_compile_options(-Wall -std=c++20)
 

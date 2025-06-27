@@ -26,6 +26,8 @@
 #include <rules/bag.hpp>
 #include <rules/field.hpp>
 
+#include <util/conv.hpp>
+
 template <
     coloring _Coloring = block_color::classic,
     attack_table_rule _Attack_Table = attack_tables::tetrio,
@@ -297,6 +299,9 @@ private:
 
     // Draw field after tetromino is placed or garbage is added.
     void _M_draw_field(bool __gray = false) {
+        wclear(_M_windows._M_field);
+        box(_M_windows._M_field, 0, 0);
+
         const auto& __dt = _M_field.data();
 
         u32 y = 1;
@@ -511,6 +516,52 @@ private:
         return __r;
     }
 
+    void _M_start(u32 __countdown) {
+        _M_queue = std::queue<tetromino>();
+        while (_M_queue.size() < _M_user_config.next.count)
+            _M_queue.push(_M_bag.next());
+        
+        _M_hold = std::nullopt;
+        _M_holdable = true;
+
+        _M_draw_all();
+        wnoutrefresh(_M_windows._M_field);
+        wnoutrefresh(_M_windows._M_next);
+        wnoutrefresh(_M_windows._M_hold);
+        wnoutrefresh(_M_windows._M_stats);
+        doupdate();
+
+        if (__countdown > 0) {
+            u32 __bw, __bh;
+            getbegyx(_M_windows._M_field, __bh, __bw);
+
+            u32 __w = __bw + converter::center(_M_field.width() * 2 + 2, 6),
+                __h = __bh + converter::center(_M_field.height() + 2, 4);
+            
+            WINDOW* __pw = newwin(5, 7, __h, __w);
+
+            __countdown = std::min(9u, __countdown);
+            for (; __countdown > 0; __countdown--) {
+                mvwprintw(__pw, 0, 0, "%s", converter::i2a[__countdown].data());
+                wrefresh(__pw);
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            }
+
+            delwin(__pw);
+        }
+
+        _M_start_time = clock_type::now();
+        _M_last_fps_time = _M_start_time;
+
+        flushinp();
+        spawn();
+        _M_draw_all();
+
+        _M_input_thread = std::jthread(std::bind_front(&game::_M_proceed_input, this));
+        _M_running = true;
+    }
+
 public:
     bool left() {
         if (_M_is_in_collision(_M_current_x - 1, _M_current_y, *_M_current)) return false;
@@ -721,33 +772,18 @@ public:
         _M_draw_field();
     }
 
-    void start() {
-        _M_start_time = clock_type::now();
-        _M_last_fps_time = _M_start_time;
-
-        _M_queue = std::queue<tetromino>();
-        while (_M_queue.size() < _M_user_config.next.count)
-            _M_queue.push(_M_bag.next());
-        
-        _M_hold = std::nullopt;
-        _M_holdable = true;
-
-        spawn();
-        _M_draw_all();
-
-        _M_input_thread = std::jthread(std::bind_front(&game::_M_proceed_input, this));
-        _M_running = true;
-    }
+    void start() { _M_start(_M_user_config.game.start_countdown); }
 
     void restart() {
         reset();
 
-        start();
+        _M_start(_M_user_config.game.restart_countdown);
     }
 
     void gameover() {
         _M_draw_field(true);
         _M_draw_next();
+        refresh();
 
         _M_running = false;
 
