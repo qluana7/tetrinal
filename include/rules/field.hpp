@@ -118,7 +118,7 @@ public:
     block_type get_block(i32 __x, i32 __y) const {
         if (
             __x >= 0 && __y >= 0 &&
-            __x < _M_width && __y < _M_height
+            (u32)__x < _M_width && (u32)__y < _M_height
         ) {
             auto __attr = _M_field[__y][__x].second;
 
@@ -200,14 +200,6 @@ public:
                 return cell.first == block_type::EMPTY;
             });
         });
-    }
-
-    void over() {
-        for (auto& __f : _M_field) {
-            for (auto& [__bt, __attr] : __f) {
-
-            }
-        }
     }
 
     u32 width() const { return _M_width; }

@@ -782,6 +782,7 @@ public:
 
     bool restart_requested() const { return _M_restart_req; }
     bool is_running() const { return _M_running; }
+    u32 frame_duration() const { return _M_frame_duration; }
 
     u32 get_fps() {
         u32 __rate = _M_frame_count.load();
