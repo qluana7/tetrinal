@@ -5,6 +5,7 @@
 #include <array>
 #include <vector>
 
+#include <memory>
 #include <numeric>
 
 #include <intdef>
@@ -17,11 +18,10 @@ namespace kick_tables::detail {
     using kick_table_t = std::vector<pos_t>;
 }
 
-template <typename T>
-concept kick_table_rule = requires (tetromino __t, u32 __from, u32 __to) {
-    // 0 : 0, 1 : R, 2 : 2, 3 : L
-    // exclude { 0, 0 } test
-    { T::get(__t, __from, __to) } -> std::same_as<const kick_tables::detail::kick_table_t&>;
+/* interface */ struct Ikick_table {
+    virtual const kick_tables::detail::kick_table_t& get(
+        tetromino __t, u32 __from, u32 __to
+    ) const = 0;
 };
 
 namespace kick_tables::detail {
@@ -75,40 +75,48 @@ namespace kick_tables::detail {
 
 namespace kick_tables {
 
+enum class types {
+    srs,        // Default SRS
+    srs_plus,   // Tetrio SRS+
+    srs_x,      // Tetrio SRS-X
+};
+
 // Default SRS, but 180 spin is custom version of Tetrio
-struct srs {
+struct srs : Ikick_table {
     static const detail::container_t _M_table;
 
     static const detail::container_t _M_table_I;
 
-    static const detail::kick_table_t& get(
+    const detail::kick_table_t& get(
         tetromino __t, u32 __from, u32 __to
-    ) { return detail::general_get<srs>(__t, __from, __to); }
+    ) const override { return detail::general_get<srs>(__t, __from, __to); }
 };
 
 // from tetrio SRS+
 struct srs_plus : public srs {
     static const detail::container_t _M_table_I;
 
-    static const detail::kick_table_t& get(
+    const detail::kick_table_t& get(
         tetromino __t, u32 __from, u32 __to
-    ) { return detail::general_get<srs_plus>(__t, __from, __to); }
+    ) const override { return detail::general_get<srs_plus>(__t, __from, __to); }
 };
 
 // from tetrio SRS-X
-struct srs_x {
+struct srs_x : Ikick_table {
     static const detail::container_t _M_table;
 
     static const detail::container_t _M_table_I;
 
-    static const detail::kick_table_t& get(
+    const detail::kick_table_t& get(
         tetromino __t, u32 __from, u32 __to
-    ) { return detail::general_get<srs_x>(__t, __from, __to); }
+    ) const override { return detail::general_get<srs_x>(__t, __from, __to); }
 };
 
 // TODO List : nullpomino_180, classic, asc
 // nullpomino : https://github.com/nullpomino/nullpomino/blob/master/nullpomino-core/src/main/java/mu/nu/nullpo/game/subsystem/wallkick/StandardMild180Wallkick.java
 
 // wishlist : jstris (no information available yet)
+
+std::unique_ptr<Ikick_table> create(types __type);
 
 }

@@ -4,10 +4,10 @@
 
 #include <array>
 
+#include <memory>
 #include <algorithm>
 
 #include <rules/tetromino.hpp>
-#include <rules/attack_table.hpp>
 #include <rules/field.hpp>
 
 struct spin_info {
@@ -19,15 +19,23 @@ struct spin_info {
     const field& _M_field;
 };
 
-template <typename T>
-concept spin_rule = requires (spin_info __info) {
-    { T::get(__info) } -> std::same_as<spin_type>;
+/* interface */ struct Ispin_table {
+    virtual constexpr spin_type get(spin_info __info) = 0;
 };
 
 namespace spin_tables {
 
-struct tspin {
-    static constexpr spin_type get(spin_info __info) {
+enum class types {
+    tspin,
+    tspin_plus,
+    all_spin,
+    all_spin_plus,
+    all_mini,
+    all_mini_plus
+};
+
+struct tspin : Ispin_table {
+    constexpr spin_type get(spin_info __info) override {
         if (__info._M_mino.type() != mino_type::T) return spin_type::NONE;
 
         // Use 3 corner rule
@@ -60,11 +68,11 @@ struct tspin {
 };
 
 // t-spin + (immobile t -> t-mini)
-struct tspin_plus {
-    static constexpr spin_type get(spin_info __info) {
+struct tspin_plus : Ispin_table {
+    constexpr spin_type get(spin_info __info) override {
         if (__info._M_mino.type() != mino_type::T) return spin_type::NONE;
 
-        spin_type __sp = tspin::get(__info);
+        spin_type __sp = tspin{}.get(__info);
 
         if (__sp == spin_type::NONE && __info._M_immobile)
             return spin_type::MINI;
@@ -72,42 +80,52 @@ struct tspin_plus {
     }
 };
 
-struct all_spin {
-    static constexpr spin_type get(spin_info __info) {
+struct all_spin : Ispin_table {
+    constexpr spin_type get(spin_info __info) override {
         if (__info._M_mino.type() == mino_type::T)
-            return tspin::get(__info);
+            return tspin{}.get(__info);
         else
             return __info._M_immobile ? spin_type::SPIN : spin_type::NONE;
     }
 };
 
-struct all_spin_plus {
-    static constexpr spin_type get(spin_info __info) {
+struct all_spin_plus : Ispin_table {
+    constexpr spin_type get(spin_info __info) override {
         if (__info._M_mino.type() == mino_type::T)
-            return tspin_plus::get(__info);
+            return tspin_plus{}.get(__info);
         else
             return __info._M_immobile ? spin_type::SPIN : spin_type::NONE;
     }
 };
 
-struct all_mini {
-    static constexpr spin_type get(spin_info __info) {
+struct all_mini : Ispin_table {
+    constexpr spin_type get(spin_info __info) override {
         if (__info._M_mino.type() == mino_type::T)
-            return tspin::get(__info);
+            return tspin{}.get(__info);
         else
             return __info._M_immobile ? spin_type::MINI : spin_type::NONE;
     }
 };
 
-struct all_mini_plus {
-    static constexpr spin_type get(spin_info __info) {
+struct all_mini_plus : Ispin_table {
+    constexpr spin_type get(spin_info __info) override {
         if (__info._M_mino.type() == mino_type::T)
-            return tspin_plus::get(__info);
+            return tspin_plus{}.get(__info);
         else
             return __info._M_immobile ? spin_type::MINI : spin_type::NONE;
     }
 };
 
-// TODO : Add tspin_plus, all_spin, all_mini, etc...
+std::unique_ptr<Ispin_table> create(types __type) {
+    switch (__type) {
+        case types::tspin: return std::make_unique<tspin>();
+        case types::tspin_plus: return std::make_unique<tspin_plus>();
+        case types::all_spin: return std::make_unique<all_spin>();
+        case types::all_spin_plus: return std::make_unique<all_spin_plus>();
+        case types::all_mini: return std::make_unique<all_mini>();
+        case types::all_mini_plus: return std::make_unique<all_mini_plus>();
+        default: return nullptr;
+    }
+}
 
 }

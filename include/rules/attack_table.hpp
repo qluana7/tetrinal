@@ -5,6 +5,8 @@
 #include <array>
 #include <string>
 
+#include <memory>
+
 #include <cmath>
 
 #include <intdef>
@@ -45,14 +47,16 @@ struct attack_info {
     }
 };
 
-template <typename T>
-concept attack_table_rule = requires (attack_info __atk) {
-    { T::get(__atk) } -> std::same_as<u32>;
-};
+/* interface */ struct Iattack_table
+{ virtual constexpr u32 get(attack_info __atk) = 0; };
 
 namespace attack_tables {
 
-struct tetrio {
+enum class types {
+    tetrio
+};
+
+struct tetrio : Iattack_table {
 private:
     static constexpr u32 B2B_BONUS = 1;
     static constexpr f64 B2B_BONUS_LOG = .8;
@@ -70,7 +74,7 @@ private:
     }};
 
 public:
-    static constexpr u32 get(attack_info __atk) {
+    constexpr u32 get(attack_info __atk) override {
         auto [__t, __c, __b, __s, _] = __atk;
 
         f64 __r = __table[static_cast<u32>(__s)][static_cast<u32>(__t)];
@@ -81,7 +85,7 @@ public:
             __r += (
                 B2B_BONUS * (
                     (u32)(__tmp) +
-                    (__b == 1 ? 0 : __tmp - (u32)(__tmp) + 1) / 3
+                    (__b == 1 ? 0 : (__tmp - (u32)(__tmp) + 1) / 3)
                 )
             );
         }
@@ -94,5 +98,12 @@ public:
         return (u32)std::floor(__r) + (__atk._M_pc * 10);
     }
 };
+
+std::unique_ptr<Iattack_table> create(types __type) {
+    switch (__type) {
+        case types::tetrio: return std::make_unique<tetrio>();
+        default: return nullptr;
+    }
+}
 
 }

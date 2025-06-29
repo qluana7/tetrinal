@@ -1,10 +1,11 @@
 #pragma once
 
 #include <array>
-#include <queue>
+#include <list>
 #include <map>
 #include <sstream>
 
+#include <memory>
 #include <functional>
 #include <atomic>
 #include <random>
@@ -28,20 +29,8 @@
 
 #include <util/conv.hpp>
 
-template <
-    coloring _Coloring = block_color::classic,
-    attack_table_rule _Attack_Table = attack_tables::tetrio,
-    kick_table_rule _Kick_Table = kick_tables::srs_plus,
-    spin_rule _Spin = spin_tables::tspin,
-    typename _Bag_Rule = bag7, typename _RandomFunc = std::mt19937
->
 class game {
 public:
-    using coloring_t = _Coloring;
-    using attack_table_t = _Attack_Table;
-    using kick_table_t = _Kick_Table;
-    using spin_t = _Spin;
-    using bag_t = bag<_Bag_Rule, _RandomFunc>;
     using clock_type = std::chrono::high_resolution_clock;
     using time_type = clock_type::time_point;
 
@@ -49,19 +38,36 @@ public:
 
 public:
     game(
+        std::mt19937& __rand,
         user_config __uconf = user_config{},
-        _RandomFunc __rand = _RandomFunc{std::random_device{}()}
-    ) : _M_bag(__rand), _M_user_config(__uconf) {
+        block_color::types __color = block_color::types::bright,
+        bags::types __bag_type = bags::types::bag7
+    ) : _M_user_config(__uconf), _M_bag(__rand, bags::create(__bag_type)),
+        _M_color(block_color::create(__color)) {
         _M_field = field(__uconf.field.width, __uconf.field.height + __uconf.field.extra_height);
+
+        _M_attack_table = attack_tables::create(__uconf.game.attack_table);
+        _M_kick_table = kick_tables::create(__uconf.game.kick_table);
+        _M_spin_table = spin_tables::create(__uconf.game.spin_table);
+
         _M_init();
         reset();
     }
 
 private:
     field _M_field;
-    bag_t _M_bag;
+
+    user_config _M_user_config;
+
+    bag_generator _M_bag;
+    std::unique_ptr<Iblock_color> _M_color;
+
+    std::unique_ptr<Iattack_table> _M_attack_table;
+    std::unique_ptr<Ikick_table> _M_kick_table;
+    std::unique_ptr<Ispin_table> _M_spin_table;
+
     std::optional<tetromino> _M_current, _M_hold;
-    std::queue<tetromino> _M_queue;
+    std::list<tetromino> _M_queue;
     bool _M_holdable = true;
     // This value can be negative because of mino shape.
     i32 _M_current_x = 0, _M_current_y = 0;
@@ -76,8 +82,6 @@ private:
     u32 _M_kick_index = 0;
 
     std::vector<std::string> _M_attack_history;
-
-    user_config _M_user_config;
 
     struct {
         WINDOW* _M_field = nullptr;
@@ -218,7 +222,7 @@ private:
 
 
         for (u8 __i = 0; __i < 9u; __i++) {
-            auto __color = coloring_t::color(static_cast<block_type>(__i));
+            auto __color = _M_color->color(static_cast<block_type>(__i));
             _M_init_color(_S_normal_color + __i, __color, _S_normal_coloring);
             _M_init_color(_S_guide_color  + __i, __color, _S_guide_coloring );
             _M_init_color(_S_locked_color + __i, __color, _S_locked_coloring);
@@ -256,10 +260,10 @@ private:
 
     tetromino _M_get_next() {
         while (_M_queue.size() <= _M_user_config.next.count)
-            _M_queue.push(_M_bag.next());
+            _M_queue.push_back(_M_bag.next());
 
         tetromino __next = _M_queue.front();
-        _M_queue.pop();
+        _M_queue.pop_front();
         return __next;
     }
 
@@ -352,14 +356,9 @@ private:
 
         mvwprintw(_M_windows._M_next, 0, 3, "Next");
 
-        std::queue<tetromino> __tmp = _M_queue;
-
-        
-        for (u32 __i = 0; __i < _M_user_config.next.count; ++__i) {
-            tetromino __t = __tmp.front(); __tmp.pop();
-
-            _M_draw_mino(_M_windows._M_next, __t, __i * 4, 1, true);
-        }
+        auto iter = _M_queue.begin();
+        for (u32 __i = 0; __i < _M_user_config.next.count; ++__i, ++iter)
+            _M_draw_mino(_M_windows._M_next, *iter, __i * 4, 1, true);
 
         _M_refresh_marked[1] = true;
     }
@@ -517,9 +516,9 @@ private:
     }
 
     void _M_start(u32 __countdown) {
-        _M_queue = std::queue<tetromino>();
+        _M_queue = std::list<tetromino>();
         while (_M_queue.size() < _M_user_config.next.count)
-            _M_queue.push(_M_bag.next());
+            _M_queue.push_back(_M_bag.next());
         
         _M_hold = std::nullopt;
         _M_holdable = true;
@@ -629,7 +628,7 @@ public:
         __t.rotate(__r);
 
         const auto& __table =
-            kick_table_t::get(__t, _M_current->direction(), __t.direction());
+            _M_kick_table->get(__t, _M_current->direction(), __t.direction());
         
         bool __flag = false;
         i32 __idx = -1;
@@ -679,7 +678,7 @@ public:
 
         spin_type __sp =
             _M_is_last_spin ?
-            spin_t::get({
+            _M_spin_table->get({
                 *_M_current, _M_current_x, _M_current_y,
                 _M_kick_index, __imm,
                 _M_field
@@ -699,7 +698,7 @@ public:
             else _M_attack_info._M_btb++;
             
             std::stringstream ss;
-            ss << "[" << attack_table_t::get(_M_attack_info) << "] "
+            ss << "[" << _M_attack_table->get(_M_attack_info) << "] "
                << _M_attack_info.to_string(_M_current->to_char());
             _M_attack_history.push_back(ss.str());
         } else {
@@ -804,7 +803,7 @@ public:
         _M_field.clear();
         _M_bag.reset();
         
-        _M_queue = std::queue<tetromino>();
+        _M_queue = std::list<tetromino>();
         _M_current = std::nullopt;
         _M_hold = std::nullopt;
 

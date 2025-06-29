@@ -4,6 +4,7 @@
 #include <list>
 #include <tuple>
 
+#include <memory>
 #include <random>
 #include <algorithm>
 
@@ -19,16 +20,19 @@ enum class block_type : u8
 enum class block_attribute : u8
 { NORMAL, GUIDE, LOCKED };
 
-template <typename T>
-concept coloring = requires(block_type __bt) {
-    // Empty color will ignore.
-    { T::color(__bt) } -> std::same_as<std::tuple<u8, u8, u8>>;
+/* interface */ struct Iblock_color {
+    virtual constexpr std::tuple<u8, u8, u8> color(block_type __bt) = 0;
 };
 
 namespace block_color {
 
-struct classic {
-    static std::tuple<u8, u8, u8> color(block_type __bt) {
+enum class types {
+    classic, // Classic Tetris colors
+    bright,  // Bright colors
+};
+
+struct classic : Iblock_color {
+    constexpr std::tuple<u8, u8, u8> color(block_type __bt) override {
         switch (__bt) {
             case block_type::I: return { 0, 255, 255 };
             case block_type::J: return { 0, 0, 255 };
@@ -44,8 +48,8 @@ struct classic {
     }
 };
 
-struct bright {
-    static std::tuple<u8, u8, u8> color(block_type __bt) {
+struct bright : Iblock_color {
+    constexpr std::tuple<u8, u8, u8> color(block_type __bt) override {
         switch (__bt) {
             case block_type::I: return { 68, 255, 255 };
             case block_type::J: return { 68, 68, 255 };
@@ -60,6 +64,14 @@ struct bright {
         }
     }
 };
+
+std::unique_ptr<Iblock_color> create(types __type) {
+    switch (__type) {
+        case types::classic: return std::make_unique<classic>();
+        case types::bright:  return std::make_unique<bright>();
+        default: return nullptr;
+    }
+}
 
 }
 

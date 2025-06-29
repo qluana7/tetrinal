@@ -4,6 +4,7 @@
 
 #include <vector>
 
+#include <memory>
 #include <algorithm>
 #include <random>
 
@@ -11,14 +12,18 @@
 
 #include <rules/tetromino.hpp>
 
-template <typename T, typename _RandomFunc>
-concept bag_rule = requires (_RandomFunc& __rand) {
-    { T::generate(__rand) } -> std::same_as<std::vector<tetromino>>;
+/* interface */ struct Ibag {
+    virtual std::vector<tetromino> generate(std::mt19937& __rand) = 0;
 };
 
-struct bag7 {
-    template <typename _RandomFunc>
-    static std::vector<tetromino> generate(_RandomFunc& __rand) {
+namespace bags {
+
+enum class types {
+    bag7, bag14, bag7x, bag_classic
+};
+
+struct bag7 : Ibag {
+    std::vector<tetromino> generate(std::mt19937& __rand) override {
         std::vector<tetromino> __bag = {
             tetromino::I, tetromino::J, tetromino::L,
             tetromino::O, tetromino::S, tetromino::T,
@@ -30,9 +35,8 @@ struct bag7 {
     }
 };
 
-struct bag14 {
-    template <typename _RandomFunc>
-    static std::vector<tetromino> generate(_RandomFunc& __rand) {
+struct bag14 : Ibag {
+    std::vector<tetromino> generate(std::mt19937& __rand) override {
         std::vector<tetromino> __bag = {
             tetromino::I, tetromino::J, tetromino::L,
             tetromino::O, tetromino::S, tetromino::T,
@@ -46,11 +50,11 @@ struct bag14 {
     }
 };
 
-template <u32 _N = 1>
-struct bag7x {
+struct bag7x : Ibag {
 public:
-    template <typename _RandomFunc>
-    static std::vector<tetromino> generate(_RandomFunc& __rand) {
+    u32 _M_n = 1;
+
+    std::vector<tetromino> generate(std::mt19937& __rand) override {
         std::vector<tetromino> __bag = {
             tetromino::I, tetromino::J, tetromino::L,
             tetromino::O, tetromino::S, tetromino::T,
@@ -61,7 +65,7 @@ public:
 
         std::uniform_int_distribution<std::size_t> __idx(0, 6);
 
-        for (u32 __i = 0; __i < _N; __i++)
+        for (u32 __i = 0; __i < _M_n; __i++)
             __extra.push_back(__bag[__idx(__rand)]);
 
         __bag.insert(__bag.end(), __extra.begin(), __extra.end());
@@ -70,9 +74,8 @@ public:
     }
 };
 
-struct bag_classic {
-    template <typename _RandomFunc>
-    static std::vector<tetromino> generate(_RandomFunc& __rand) {
+struct bag_classic : Ibag {
+    std::vector<tetromino> generate(std::mt19937& __rand) override {
         std::vector<tetromino> __bag = {
             tetromino::I, tetromino::J, tetromino::L,
             tetromino::O, tetromino::S, tetromino::T,
@@ -83,11 +86,21 @@ struct bag_classic {
     }
 };
 
-template <typename _Rule = bag7, typename _RandomFunc = std::mt19937>
-requires bag_rule<_Rule, _RandomFunc>
-struct bag {
-    bag(_RandomFunc __rand = _RandomFunc{std::random_device{}()})
-    : _M_rand(__rand), _M_current(_M_queue.end()) { }
+std::unique_ptr<Ibag> create(types __type) {
+    switch (__type) {
+        case types::bag7:        return std::make_unique<bag7>();
+        case types::bag14:       return std::make_unique<bag14>();
+        case types::bag7x:       return std::make_unique<bag7x>();
+        case types::bag_classic: return std::make_unique<bag_classic>();
+        default:                 return nullptr;
+    }
+}
+
+}
+
+struct bag_generator {
+    bag_generator(std::mt19937& __rand, std::unique_ptr<Ibag> __bag)
+    : _M_rand(__rand), _M_current(_M_queue.end()), _M_bag(std::move(__bag)) { }
 
     /**
      * @brief Constructs a bag and insert a predefined set of tetrominoes before bag start.
@@ -105,20 +118,22 @@ struct bag {
      */
     template <typename _Container>
     requires std::ranges::range<_Container>
-    bag(const _Container& __c, _RandomFunc __rand = _RandomFunc{std::random_device{}()})
-    : _M_rand(__rand), _M_queue(__c.begin(), __c.end()), _M_current(_M_queue.begin()) { }
+    bag_generator(const _Container& __c, std::mt19937& __rand, std::unique_ptr<Ibag> __bag)
+    : _M_rand(__rand), _M_queue(__c.begin(), __c.end()), _M_current(_M_queue.begin())
+    , _M_bag(std::move(__bag)) { }
 
 private:
     using container_type = std::vector<tetromino>;
 
-    _RandomFunc _M_rand;
+    std::mt19937 _M_rand;
     container_type _M_queue;
     container_type::const_iterator _M_current;
+    std::unique_ptr<Ibag> _M_bag;
 
 public:
     tetromino next() {
         if (_M_current == _M_queue.end()) {
-            _M_queue = _Rule::generate(_M_rand);
+            _M_queue = _M_bag->generate(_M_rand);
             _M_current = _M_queue.begin();
         }
         

@@ -1,5 +1,7 @@
 #include <iostream>
 
+#include <random>
+
 #include <intdef>
 
 #include <ncurses.h>
@@ -36,12 +38,8 @@ int main() {
     __config.game.fps = 120;
     __config.game.start_countdown = 9;
 
-    game<
-        block_color::bright,
-        attack_tables::tetrio,
-        kick_tables::srs_plus,
-        spin_tables::all_mini_plus
-    > g(__config);
+    std::mt19937 engine;
+    game g(engine, __config);
     
     g.start();
     refresh();

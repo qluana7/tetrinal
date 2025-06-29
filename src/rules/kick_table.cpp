@@ -154,4 +154,13 @@ const detail::container_t srs_x::_M_table_I = {{
     { { 0, -1 }, { 0, -2 }, { 0, 1 }, { 0, 2 }, { 1, 0 } }
 }};
 
+std::unique_ptr<Ikick_table> create(types __type) {
+    switch (__type) {
+        case types::srs: return std::make_unique<srs>();
+        case types::srs_plus: return std::make_unique<srs_plus>();
+        case types::srs_x: return std::make_unique<srs_x>();
+        default: return nullptr;
+    }
+}
+
 }
