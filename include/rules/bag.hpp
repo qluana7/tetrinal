@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <random>
 
-#include <intdef>
+#include <lib/intdef>
 
 #include <rules/tetromino.hpp>
 

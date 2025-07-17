@@ -2,15 +2,16 @@
 
 #include <random>
 
-#include <intdef>
-
 #include <ncurses.h>
 
+#include <lib/intdef>
 #include <rules/tetromino.hpp>
 #include <rules/bag.hpp>
 #include <rules/attack_table.hpp>
 #include <rules/field.hpp>
+
 #include <game.hpp>
+#include <env.hpp>
 
 bool init() {
     if (initscr() == nullptr) return false;
@@ -26,26 +27,48 @@ bool init() {
     return true;
 }
 
-int main() {
+int main(int argc, char** argv) {
+    env::initialize(argc, argv);
+
     if (!init()) {
         std::cerr << "Failed to initialize ncurses.\n";
         return 1;
     }
 
+    refresh();
+
     user_config __config;
     __config.hold.infinite = true;
     __config.control.inf_soft_drop = true;
     __config.game.fps = 120;
-    __config.game.start_countdown = 9;
+    __config.game.start_countdown = 0;
+    // __config.game.mode = user_config::game_mode::puzzle;
 
-    std::mt19937 engine;
+    std::mt19937 engine(std::random_device{}());
     game g(engine, __config);
+
+    // For puzzle mode.
+    /*
+    g.set_puzzle_function([](
+        const field& f,
+        tetromino t,
+        i32 x, i32 y,
+        attack_info atk
+    ) -> bool {
+        // Example puzzle function: Check if the field is empty.
+        return atk._M_pc;
+    });
+    g.set_puzzle_sequence("*p4*!");
+    */
     
     g.start();
     refresh();
 
     while (true) {
         if (!g.is_running()) break;
+
+        i32 ch = getch();
+        g.proceed_input(ch);
 
         if (g.restart_requested())
             g.restart();

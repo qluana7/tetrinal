@@ -17,7 +17,7 @@
 
 #include <ncurses.h>
 
-#include <intdef>
+#include <lib/intdef>
 
 #include <config.hpp>
 #include <rules/tetromino.hpp>
@@ -36,13 +36,25 @@ public:
 
     using control_key = user_config::control_config::KEYS;
 
+    using puzzle_function = std::function<bool (
+        // Field
+        const field&,
+        // Last placed tetromino
+        tetromino,
+        // Last placed tetromino position
+        i32, i32,
+        // Current attack info
+        attack_info
+    )>;
+
 public:
     game(
         std::mt19937& __rand,
         user_config __uconf = user_config{},
         block_color::types __color = block_color::types::bright,
         bags::types __bag_type = bags::types::bag7
-    ) : _M_user_config(__uconf), _M_bag(__rand, bags::create(__bag_type)),
+    ) : _M_user_config(__uconf), _M_rand(__rand),
+        _M_bag(__rand, bags::create(__bag_type)),
         _M_color(block_color::create(__color)) {
         _M_field = field(__uconf.field.width, __uconf.field.height + __uconf.field.extra_height);
 
@@ -54,10 +66,20 @@ public:
         reset();
     }
 
+    ~game() {
+        if (_M_windows._M_field) delwin(_M_windows._M_field);
+        if (_M_windows._M_next) delwin(_M_windows._M_next);
+        if (_M_windows._M_hold) delwin(_M_windows._M_hold);
+        if (_M_windows._M_stats) delwin(_M_windows._M_stats);
+        if (_M_windows._M_msg) delwin(_M_windows._M_msg);
+    }
+
 private:
     field _M_field;
 
     user_config _M_user_config;
+
+    std::mt19937& _M_rand;
 
     bag_generator _M_bag;
     std::unique_ptr<Iblock_color> _M_color;
@@ -89,6 +111,7 @@ private:
         WINDOW* _M_hold = nullptr;
         WINDOW* _M_stats = nullptr;
         WINDOW* _M_msg = nullptr;
+        WINDOW* _M_meta = nullptr;
     } _M_windows;
 
     std::array<bool, 4> _M_refresh_marked = { false, };
@@ -96,15 +119,58 @@ private:
     bool _M_running = false;
     time_type _M_start_time, _M_last_fps_time;
 
-    std::atomic<bool> _M_restart_req = false;
+    bool _M_restart_req = false;
+    // If value is negative, it follows the default restart countdown;
+    // otherwise it uses the specified countdown value.
+    i32 _M_restart_countdown = -1;
 
     u32 _M_frame_duration;
-    std::atomic<u32> _M_frame_count;
+    u32 _M_frame_count = 0;
 
-    std::jthread _M_input_thread;
-    // TODO : add input handling with std::jthread
-    //        and move main loop source from main.cpp
-    //        after impl all, impl main title and other modes, etc.
+    /* For meta data */
+    std::array<std::string_view, 4> _M_meta_data {
+        "nothing to undo",
+        "nothing to redo",
+        "undo buffer full",
+        "Perfect Clear!"
+    };
+    u32 _M_meta_idx = 0;
+    // -1 means no meta data is being displayed.
+    // Otherwise, it is the index of the meta data being displayed.
+    // This value decreases by 1 every frame.
+    i32 _M_meta_time = -1;
+    bool _M_meta_drawn = false;
+    /* ------------- */
+
+    /* For undo/redo */
+
+    struct save_data {
+        field _M_field;
+        std::optional<tetromino> _M_current;
+        std::optional<tetromino> _M_hold;
+        std::list<tetromino> _M_queue;
+        attack_info _M_attack_info;
+        std::optional<std::string> _M_attck_string;
+        std::mt19937 _M_rand;
+    };
+
+    std::array<save_data, 20> _M_save_stack;
+    u32 _M_save_idx = 0;
+    u32 _M_last_idx = 0;
+    u32 _M_placed = 0;
+
+    /* ------------- */
+
+    /* For puzzle */
+
+    std::string _M_puzzle_sequence;
+    std::vector<tetromino> _M_puzzle_queue;
+    bool _M_solved = false;
+    u32 _M_solved_count = 0;
+
+    puzzle_function _M_puzzle_func = nullptr;
+
+    /* ---------  */
 
     inline static constexpr u16 _S_color_interval = 16;
     inline static constexpr u16 _S_color_start = 30;
@@ -169,54 +235,8 @@ private:
             init_pair(__idx, __idx, __idx) == OK;
     }
 
-    void _M_proceed_input(std::stop_token tk) {
-        while (true) {
-            i32 ch = getch();
-
-            if (tk.stop_requested())
-                return;
-            
-            if (!_M_running) continue;
-            
-            if (ch == ERR) continue;
-            if (ch == KEY_RESIZE) {
-                clear(); _M_draw_all();
-                continue;
-            }
-
-            ch = std::tolower(ch);
-
-#ifdef DEBUG
-            if (ch == 'g')  {
-                // Debugging: move down once
-                _M_down_once();
-                continue;
-            }
-#endif
-            if (!_M_user_config.control.key_map.contains(ch)) continue;
-            
-            switch (_M_user_config.control.key_map.at(ch)) {
-                case control_key::LEFT: left(); break;
-                case control_key::RIGHT: right(); break;
-                case control_key::DOWN: down(); break;
-                case control_key::ROTATE_CW: rotate(rotation::cw); break;
-                case control_key::ROTATE_CCW: rotate(rotation::ccw); break;
-                case control_key::ROTATE_180: rotate(rotation::_180); break;
-                case control_key::DROP: drop(); break;
-                case control_key::HOLD: hold(); break;
-                case control_key::RESET: _M_restart_req = true; return;
-                case control_key::QUIT: gameover(); break;
-                //  TODO : Implement undo/redo
-                // case control_key::UNDO: undo(); break;
-                // case control_key::REDO: redo(); break;
-                default: break;
-            }
-        }
-    }
-
     void _M_init() {
         _M_frame_duration = 1000 / _M_user_config.game.fps;
-        _M_frame_count.store(0);
 
         // Setup tables for input
 
@@ -246,6 +266,7 @@ private:
         _M_windows._M_hold = newwin(6, 10, 1, __left_space_width - 10);
         _M_windows._M_stats = newwin(14, __left_space_width, 13, 0);
         _M_windows._M_msg = newwin(1, __width, 0, 0);
+        _M_windows._M_meta = newwin(3, __left_space_width, 8, 0);
         
         box(_M_windows._M_field, 0, 0);
         box(_M_windows._M_next, 0, 0);
@@ -259,6 +280,22 @@ private:
     }
 
     tetromino _M_get_next() {
+        if (_M_user_config.game.mode == user_config::game_mode::puzzle) {
+            if (_M_queue.empty()) {
+                if (_M_hold.has_value()) {
+                    tetromino __hold = *_M_hold;
+                    _M_hold.reset();
+                    _M_holdable = false;
+                    _M_draw_hold();
+                    return __hold;
+                } else return tetromino::INVALID;
+            } else {
+                tetromino __next = _M_queue.front();
+                _M_queue.pop_front();
+                return __next;
+            }
+        }
+
         while (_M_queue.size() <= _M_user_config.next.count)
             _M_queue.push_back(_M_bag.next());
 
@@ -317,7 +354,7 @@ private:
                 if (cell == block_type::EMPTY) {
                     wprintw(_M_windows._M_field, "  ");
                 } else {
-                    chtype __attr;
+                    chtype __attr = 0;
                     
                     switch (attr) {
                         case block_attribute::NORMAL:
@@ -357,7 +394,8 @@ private:
         mvwprintw(_M_windows._M_next, 0, 3, "Next");
 
         auto iter = _M_queue.begin();
-        for (u32 __i = 0; __i < _M_user_config.next.count; ++__i, ++iter)
+        u32 __size = std::min<u32>(_M_user_config.next.count, _M_queue.size());
+        for (u32 __i = 0; __i < __size; ++__i, ++iter)
             _M_draw_mino(_M_windows._M_next, *iter, __i * 4, 1, true);
 
         _M_refresh_marked[1] = true;
@@ -384,15 +422,20 @@ private:
         
         mvwprintw(_M_windows._M_stats, 0, 3, "Stats");
 
-        // if (_M_attack_info._M_btb > 0)
-            mvwprintw(_M_windows._M_stats, 1, 1, "B2B x%d", _M_attack_info._M_btb);
-        // else
-        //     mvwprintw(_M_windows._M_stats, 1, 1, "%s", std::string(28, ' ').c_str());
+        if (_M_user_config.game.mode == user_config::game_mode::puzzle) {
+            mvwprintw(_M_windows._M_stats, 2, 1, "Solved count: %d", _M_solved_count);
+        } else {
 
-        for (u32 __i = 0, __len = std::min<size_t>(_M_attack_history.size(), 5u); __i < __len; ++__i)
-            mvwprintw(_M_windows._M_stats, 2 + __i, 1, "%s",
-                _M_attack_history[_M_attack_history.size() - __i - 1].c_str()
-            );
+            // if (_M_attack_info._M_btb > 0)
+            mvwprintw(_M_windows._M_stats, 1, 1, "B2B x%d", _M_attack_info._M_btb);
+            // else
+            //     mvwprintw(_M_windows._M_stats, 1, 1, "%s", std::string(28, ' ').c_str());
+
+            for (u32 __i = 0, __len = std::min<size_t>(_M_attack_history.size(), 5u); __i < __len; ++__i)
+                mvwprintw(_M_windows._M_stats, 2 + __i, 1, "%s",
+                    _M_attack_history[_M_attack_history.size() - __i - 1].c_str()
+                );
+        }
 
         // Disable clock because of performance issues.
         /*
@@ -470,6 +513,8 @@ private:
     bool _M_is_in_collision(
         i32 __x, i32 __y, const tetromino& __t
     ) {
+        if (__t == tetromino::INVALID) return true;
+
         for (u32 __i = 0; __i < __t.size(); ++__i) {
             for (u32 __j = 0; __j < __t.size(); ++__j) {
                 if (__t.data()[__i][__j] == 0) continue;
@@ -517,11 +562,25 @@ private:
 
     void _M_start(u32 __countdown) {
         _M_queue = std::list<tetromino>();
-        while (_M_queue.size() < _M_user_config.next.count)
-            _M_queue.push_back(_M_bag.next());
+
+        if (_M_user_config.game.mode == user_config::game_mode::puzzle) {
+            if (_M_puzzle_func == nullptr)
+                throw std::runtime_error("Puzzle function is not set.");
+            if (_M_puzzle_sequence.empty())
+                throw std::runtime_error("Puzzle sequence is not set.");
+            
+            if (_M_puzzle_queue.empty())
+                _M_puzzle_queue = *tetromino::gen(_M_puzzle_sequence, _M_rand);
+            _M_queue = std::list<tetromino>(_M_puzzle_queue.begin(), _M_puzzle_queue.end());
+
+            _M_restart_countdown = 0;
+        } else {
+            while (_M_queue.size() < _M_user_config.next.count)
+                _M_queue.push_back(_M_bag.next());
+        }
         
         _M_hold = std::nullopt;
-        _M_holdable = true;
+        _M_holdable = _M_user_config.hold.enabled;
 
         _M_draw_all();
         wnoutrefresh(_M_windows._M_field);
@@ -556,9 +615,18 @@ private:
         flushinp();
         spawn();
         _M_draw_all();
-
-        _M_input_thread = std::jthread(std::bind_front(&game::_M_proceed_input, this));
         _M_running = true;
+    }
+
+    void _M_reset_meta() { _M_meta_time = 0; }
+
+    template <typename Rep2, typename Period2>
+    void _M_set_meta(u32 __idx, std::chrono::duration<Rep2, Period2> __time) {
+        _M_meta_idx = __idx;
+        _M_meta_time =
+            std::chrono::duration_cast<std::chrono::seconds>(__time).count() *
+            _M_user_config.game.fps;
+        _M_meta_drawn = false;
     }
 
 public:
@@ -701,12 +769,29 @@ public:
             ss << "[" << _M_attack_table->get(_M_attack_info) << "] "
                << _M_attack_info.to_string(_M_current->to_char());
             _M_attack_history.push_back(ss.str());
+            _M_save_stack[_M_save_idx]._M_attck_string = ss.str();
+
+            if (_M_attack_info._M_pc)
+                _M_set_meta(3, std::chrono::seconds(2));
         } else {
             _M_attack_info._M_pc = false;
             _M_attack_info._M_type = attack_type::SINGLE;
             _M_attack_info._M_combo = 0;
             _M_attack_info._M_spin = spin_type::NONE;
         }
+
+        if (_M_user_config.game.mode == user_config::game_mode::puzzle) {
+            if (_M_puzzle_func) {
+                if (_M_puzzle_func(
+                    _M_field, *_M_current, _M_current_x, _M_current_y,
+                    _M_attack_info
+                )) _M_solved = true;
+            }
+        }
+
+        _M_placed++;
+        _M_save_idx = (_M_save_idx + 1) % _M_save_stack.size();
+        _M_last_idx = _M_save_idx;
 
         // Draw in spawn.
         spawn();
@@ -718,6 +803,26 @@ public:
 
         if (__new)
             _M_current = _M_get_next();
+
+        if (_M_user_config.game.mode == user_config::game_mode::puzzle) {
+            if (_M_current == tetromino::INVALID) {
+                if (_M_solved) {
+                    _M_puzzle_queue = *tetromino::gen(_M_puzzle_sequence, _M_rand);
+
+                    _M_solved_count++;
+                    _M_solved = false;
+                    _M_draw_stats();
+                }
+
+                _M_queue = std::list<tetromino>(
+                    _M_puzzle_queue.begin(), _M_puzzle_queue.end()
+                );
+                
+                _M_restart_req = true;
+                return;
+            }
+        }
+
         _M_current_x = _M_field.width() / 2 - (_M_current->size() + 1) / 2;
         _M_current_y = _M_user_config.spawn.base_height;
 
@@ -741,6 +846,20 @@ public:
         _M_draw_current_mino();
         _M_refresh_marked[0] = true;
 
+        if (__new) {
+            save_data __dt;
+
+            __dt._M_field = _M_field;
+            __dt._M_current = _M_current;
+            __dt._M_hold = _M_hold;
+            __dt._M_queue = _M_queue;
+            __dt._M_attack_info = _M_attack_info;
+            __dt._M_attck_string = std::nullopt;
+            __dt._M_rand = _M_rand;
+
+            _M_save_stack[_M_save_idx] = __dt;
+        }
+
         _M_draw_next();
     }
 
@@ -753,6 +872,8 @@ public:
             spawn(false);
         }
         else {
+            if (_M_queue.empty()) return;
+
             _M_hold = _M_current;
             spawn();
         }
@@ -766,6 +887,43 @@ public:
         _M_draw_hold();
     }
 
+    void proceed_input(i32 ch) {
+        if (!_M_running) return;
+            
+        if (ch == ERR) return;
+        if (ch == KEY_RESIZE) {
+            clear(); _M_draw_all();
+            return;
+        }
+
+        ch = std::tolower(ch);
+
+#ifdef DEBUG
+        if (ch == 'g')  {
+            // Debugging: move down once
+            _M_down_once();
+            return;
+        }
+#endif
+        if (!_M_user_config.control.key_map.contains(ch)) return;
+            
+        switch (_M_user_config.control.key_map.at(ch)) {
+            case control_key::LEFT: left(); break;
+            case control_key::RIGHT: right(); break;
+            case control_key::DOWN: down(); break;
+            case control_key::ROTATE_CW: rotate(rotation::cw); break;
+            case control_key::ROTATE_CCW: rotate(rotation::ccw); break;
+            case control_key::ROTATE_180: rotate(rotation::_180); break;
+            case control_key::DROP: drop(); break;
+            case control_key::HOLD: hold(); break;
+            case control_key::RESET: _M_restart_req = true; return;
+            case control_key::QUIT: gameover(); break;
+            case control_key::UNDO: undo(); break;
+            case control_key::REDO: redo(); break;
+            default: break;
+        }
+    }
+
     void garbage(u32 __cnt, i32 __hole = -1) {
         _M_field.put_garbage(__cnt, __hole);
         _M_draw_field();
@@ -776,7 +934,10 @@ public:
     void restart() {
         reset();
 
-        _M_start(_M_user_config.game.restart_countdown);
+        u32 __countdown = _M_restart_countdown < 0 ?
+            _M_user_config.game.restart_countdown :
+            _M_restart_countdown;
+        _M_start(__countdown);
     }
 
     void gameover() {
@@ -791,12 +952,6 @@ public:
     }
 
     void reset() {
-        if (_M_input_thread.joinable() && 
-            std::this_thread::get_id() != _M_input_thread.get_id()) {
-            _M_input_thread.request_stop();
-            _M_input_thread.join();
-        }
-
         _M_restart_req = false;
         _M_running = false;
 
@@ -815,14 +970,77 @@ public:
         _M_attack_history.clear();
     }
 
+    void undo() {
+        if (_M_placed == 0) {
+            _M_set_meta(0, std::chrono::seconds(3));
+            return;
+        }
+
+        u32 __idx = (_M_save_idx + _M_save_stack.size() - 1) % _M_save_stack.size();
+
+        if (_M_save_idx == __idx) {
+            _M_set_meta(2, std::chrono::seconds(3));
+            return;
+        }
+
+        save_data __dt = _M_save_stack[__idx];
+        _M_save_idx = __idx;
+
+        _M_field = __dt._M_field;
+        _M_current = __dt._M_current;
+        _M_hold = __dt._M_hold;
+        _M_queue = __dt._M_queue;
+        _M_attack_info = __dt._M_attack_info;
+        if (__dt._M_attck_string.has_value())
+            _M_attack_history.pop_back();
+        _M_rand = __dt._M_rand;
+
+        _M_current_x = _M_field.width() / 2 - (_M_current->size() + 1) / 2;
+        _M_current_y = _M_user_config.spawn.base_height;
+
+        _M_placed--;
+
+        _M_reset_meta();
+
+        _M_draw_all();
+    }
+
+    void redo() {
+        if (_M_save_idx == _M_last_idx) {
+            _M_set_meta(1, std::chrono::seconds(3));
+            return;
+        }
+
+        _M_save_idx = (_M_save_idx + 1) % _M_save_stack.size();
+        save_data __dt = _M_save_stack[_M_save_idx];
+
+        _M_field = __dt._M_field;
+        _M_current = __dt._M_current;
+        _M_hold = __dt._M_hold;
+        _M_queue = __dt._M_queue;
+        _M_attack_info = __dt._M_attack_info;
+        if (_M_save_stack[_M_save_idx - 1]._M_attck_string.has_value())
+            _M_attack_history.push_back(*_M_save_stack[_M_save_idx - 1]._M_attck_string);
+        _M_rand = __dt._M_rand;
+
+        _M_current_x = _M_field.width() / 2 - (_M_current->size() + 1) / 2;
+        _M_current_y = _M_user_config.spawn.base_height;
+
+        _M_placed++;
+
+        _M_reset_meta();
+
+        _M_draw_all();
+    }
+
     bool restart_requested() const { return _M_restart_req; }
     bool is_running() const { return _M_running; }
     u32 frame_duration() const { return _M_frame_duration; }
 
     u32 get_fps() {
-        u32 __rate = _M_frame_count.load();
+        u32 __rate = _M_frame_count;
 
-        _M_frame_count.store(0);
+        _M_frame_count = 0;
 
         return std::min(999u, __rate);
     }
@@ -842,17 +1060,44 @@ public:
             }
         }
 
+        if (_M_meta_time > 0) {
+            if (!_M_meta_drawn) {
+                _M_meta_drawn = true;
+                box(_M_windows._M_meta, 0, 0);
+                mvwprintw(_M_windows._M_meta, 1, 1, "%s", 
+                    _M_meta_data[_M_meta_idx].data()
+                );
+                wnoutrefresh(_M_windows._M_meta);
+            }
+
+            _M_meta_time--;
+        } else if (_M_meta_time == 0) {
+            werase(_M_windows._M_meta);
+            wnoutrefresh(_M_windows._M_meta);
+        }
+
         auto now = clock_type::now();
         if (now - _M_last_fps_time >= std::chrono::seconds(1)) {
             _M_last_fps_time = now;
 
             u32 fps = get_fps();
+
             mvwprintw(_M_windows._M_msg, 0, 0, "FPS: %3d", fps);
             wnoutrefresh(_M_windows._M_msg);
         }
 
         doupdate();
 
-        _M_frame_count.fetch_add(1, std::memory_order_relaxed);
+        _M_frame_count++;
+    }
+
+    void set_puzzle_function(puzzle_function __func) { _M_puzzle_func = __func; }
+    void set_puzzle_sequence(const std::string& __seq) {
+        _M_puzzle_sequence = __seq;
+
+        auto __test = tetromino::gen(__seq, _M_rand);
+
+        if (!__test)
+            throw std::runtime_error("Invalid puzzle sequence: " + __seq);
     }
 };

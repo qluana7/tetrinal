@@ -47,14 +47,26 @@ public:
         return output;
     }
 
-    template <typename ForwardIterator>
-    inline static std::string join(ForwardIterator b, ForwardIterator e, std::function<std::string (const typename std::iterator_traits<ForwardIterator>::value_type&)> conv, const std::string& delim = "") {
+    template <typename ForwardIterator, typename UnaryOp>
+    inline static std::string join(ForwardIterator b, ForwardIterator e, UnaryOp conv, const std::string& delim = "") {
         if (b == e) return "";
 
         std::string output = conv(*b);
 
         for (b++; b != e; b++)
             output += delim + conv(*b);
+
+        return output;
+    }
+
+    template <typename ForwardIterator, typename UnaryOp>
+    inline static std::string join_iter(ForwardIterator b, ForwardIterator e, UnaryOp conv, const std::string& delim = "") {
+        if (b == e) return "";
+
+        std::string output = conv(b);
+
+        for (b++; b != e; b++)
+            output += delim + conv(b);
 
         return output;
     }

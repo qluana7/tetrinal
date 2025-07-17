@@ -8,7 +8,7 @@
 #include <memory>
 #include <numeric>
 
-#include <intdef>
+#include <lib/intdef>
 
 #include <rules/tetromino.hpp>
 

@@ -10,7 +10,7 @@
 
 #include <cmath>
 
-#include <intdef>
+#include <lib/intdef>
 
 #include <rules/tetromino.hpp>
 

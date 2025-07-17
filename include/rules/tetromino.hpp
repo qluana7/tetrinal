@@ -1,23 +1,25 @@
 #pragma once
 
-#include <stdexcept>
+#include <compare>
 
 #include <vector>
 #include <string>
 
+#include <stdexcept>
 #include <tuple>
 #include <algorithm>
 #include <random>
 #include <optional>
+#include <variant>
 
-#include <intdef>
+#include <lib/intdef>
 
 enum class rotation : u32 {
     cw = 1, _180, ccw
 };
 
 enum class mino_type : u32 {
-    I, J, L, O, S, T, Z
+    I, J, L, O, S, T, Z, INVALID
 };
 
 struct collision_t {
@@ -54,6 +56,19 @@ private:
     collision_t _M_collision;
 
 private:
+    static u32 _S_get_char_priority(char __t) {
+        switch (__t) {
+            case 'T': return 0;
+            case 'I': return 1;
+            case 'L': return 2;
+            case 'J': return 3;
+            case 'S': return 4;
+            case 'Z': return 5;
+            case 'O': return 6;
+            default: throw std::runtime_error("Invalid tetromino type");
+        }
+    }
+
     void _M_rotate_cw() {
         container_type __tmp = _M_mino;
 
@@ -100,6 +115,9 @@ private:
         }
     }
 
+    u32 _M_char_priority() const
+    { return _S_get_char_priority(to_char()); }
+
 public:
     void rotate(rotation __r) {
         switch (__r) {
@@ -133,6 +151,15 @@ public:
     tetromino& operator=(const tetromino&) = default;
     tetromino& operator=(tetromino&&) = default;
 
+    bool operator<(const tetromino& __t) const
+    { return _M_char_priority() < __t._M_char_priority(); }
+    bool operator>(const tetromino& __t) const
+    { return _M_char_priority() > __t._M_char_priority(); }
+    bool operator<=(const tetromino& __t) const
+    { return _M_char_priority() <= __t._M_char_priority(); }
+    bool operator>=(const tetromino& __t) const
+    { return _M_char_priority() >= __t._M_char_priority(); }
+
     bool operator==(const tetromino& __t) const
     { return _M_type == __t._M_type; }
     bool operator!=(const tetromino& __t) const
@@ -159,6 +186,10 @@ public:
     static const tetromino S;
     static const tetromino T;
     static const tetromino Z;
+    static const tetromino INVALID;
+
+    static std::strong_ordering compare(char __c1, char __c2)
+    { return _S_get_char_priority(__c1) <=> _S_get_char_priority(__c2); }
 
     static std::optional<tetromino> from_char(char __c) {
         switch (std::toupper(__c)) {
@@ -184,6 +215,7 @@ public:
      * 2. Brackets like '[IO]' mean: choose 1 random tetromino from the set inside the brackets.
      *    If brackets are not closed, it will return std::nullopt,
      *    and also an empty set will return std::nullopt.
+     *    Nested brackets are not allowed.
      * 
      * 3. If there is a '^' at the start inside brackets, like '[^IO]',
      *    choose a random tetromino from the set except those tetrominoes.
@@ -205,5 +237,6 @@ public:
      *   "[^O]!"       → All tetrominoes except O, shuffled
      *   "*"           → 1 random tetromino (I, J, L, O, S, T, Z)
      */
-    static std::optional<std::vector<tetromino>> gen(const std::string& __s);
+    static std::optional<std::vector<tetromino>> gen(const std::string& __s, std::mt19937& __r);
+    static bool sequence_match(const std::vector<tetromino>& __v, const std::string& __s);
 };

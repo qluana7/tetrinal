@@ -9,7 +9,7 @@
 
 #include <cmath>
 
-#include <intdef>
+#include <lib/intdef>
 
 enum class attack_type : u32 {
     SINGLE, DOUBLE, TRIPLE, QUAD
@@ -27,7 +27,6 @@ struct attack_info {
     bool _M_pc;
 
     std::string to_string(char mino) const {
-        if (_M_pc) return "Perfect Clear!";
         std::string __str;
         
         if (_M_spin != spin_type::NONE) {
@@ -42,6 +41,9 @@ struct attack_info {
             case attack_type::TRIPLE: __str += "TRIPLE"; break;
             case attack_type::QUAD: __str += "QUAD"; break;
         }
+
+        if (_M_pc)
+            __str += "!!";
 
         return __str;
     }

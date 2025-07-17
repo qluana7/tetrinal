@@ -2,7 +2,7 @@
 
 #include <map>
 
-#include <intdef>
+#include <lib/intdef>
 
 #include <rules/attack_table.hpp>
 #include <rules/kick_table.hpp>
@@ -10,6 +10,10 @@
 
 // configuration about game.
 struct user_config {
+    enum class game_mode {
+        zen, puzzle, custom
+    };
+
     struct hold_config {
         bool enabled = true;
         bool infinite = false;
@@ -63,6 +67,8 @@ struct user_config {
 
         u32 start_countdown = 3;
         u32 restart_countdown = 3;
+
+        game_mode mode = game_mode::zen;
 
         attack_tables::types attack_table = attack_tables::types::tetrio;
         kick_tables::types kick_table = kick_tables::types::srs_plus;
