@@ -21,7 +21,7 @@ enum class spin_type : u32 {
 
 struct attack_info {
     attack_type _M_type;
-    u32 _M_combo, _M_btb;
+    i32 _M_combo, _M_btb;
     spin_type _M_spin;
 
     bool _M_pc;

@@ -98,6 +98,12 @@ std::unique_ptr<Ibag> create(types __type) {
 
 }
 
+struct bag_save_data {
+    std::mt19937 _M_rand;
+    std::vector<tetromino> _M_queue;
+    u32 _M_current;
+};
+
 struct bag_generator {
     bag_generator(std::mt19937& __rand, std::unique_ptr<Ibag> __bag)
     : _M_rand(__rand), _M_current(_M_queue.end()), _M_bag(std::move(__bag)) { }
@@ -122,9 +128,9 @@ struct bag_generator {
     : _M_rand(__rand), _M_queue(__c.begin(), __c.end()), _M_current(_M_queue.begin())
     , _M_bag(std::move(__bag)) { }
 
-private:
     using container_type = std::vector<tetromino>;
-
+    
+private:
     std::mt19937 _M_rand;
     container_type _M_queue;
     container_type::const_iterator _M_current;
@@ -145,5 +151,19 @@ public:
     void reset() {
         _M_queue.clear();
         _M_current = _M_queue.end();
+    }
+
+    bag_save_data save() const {
+        return bag_save_data {
+            _M_rand,
+            _M_queue,
+            (u32)std::distance(_M_queue.begin(), _M_current)
+        };
+    }
+
+    void load(const bag_save_data& __data) {
+        _M_rand = __data._M_rand;
+        _M_queue = __data._M_queue;
+        _M_current = _M_queue.begin() + __data._M_current;
     }
 };

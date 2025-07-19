@@ -3,6 +3,7 @@
 #include <array>
 #include <list>
 #include <map>
+#include <deque>
 #include <sstream>
 
 #include <memory>
@@ -28,6 +29,7 @@
 #include <rules/field.hpp>
 
 #include <util/conv.hpp>
+#include <util/buffer.hpp>
 
 class game {
 public:
@@ -96,7 +98,7 @@ private:
     i32 _M_ghost_x = 0, _M_ghost_y = 0;
 
     attack_info _M_attack_info = {
-        attack_type::SINGLE, 0, 0, spin_type::NONE, false
+        attack_type::SINGLE, 0, -1, spin_type::NONE, false
     };
     // Check if the last input was a spin.
     bool _M_is_last_spin = false;
@@ -151,13 +153,11 @@ private:
         std::list<tetromino> _M_queue;
         attack_info _M_attack_info;
         std::optional<std::string> _M_attck_string;
+        bag_save_data _M_bag_data;
         std::mt19937 _M_rand;
     };
 
-    std::array<save_data, 20> _M_save_stack;
-    u32 _M_save_idx = 0;
-    u32 _M_last_idx = 0;
-    u32 _M_placed = 0;
+    buffer<save_data, 20> _M_save_buffer;
 
     /* ------------- */
 
@@ -426,10 +426,10 @@ private:
             mvwprintw(_M_windows._M_stats, 2, 1, "Solved count: %d", _M_solved_count);
         } else {
 
-            // if (_M_attack_info._M_btb > 0)
-            mvwprintw(_M_windows._M_stats, 1, 1, "B2B x%d", _M_attack_info._M_btb);
-            // else
-            //     mvwprintw(_M_windows._M_stats, 1, 1, "%s", std::string(28, ' ').c_str());
+            if (_M_attack_info._M_btb > 0)
+                mvwprintw(_M_windows._M_stats, 1, 1, "B2B x%d", _M_attack_info._M_btb);
+            else
+                mvwprintw(_M_windows._M_stats, 1, 1, "%s", std::string(28, ' ').c_str());
 
             for (u32 __i = 0, __len = std::min<size_t>(_M_attack_history.size(), 5u); __i < __len; ++__i)
                 mvwprintw(_M_windows._M_stats, 2 + __i, 1, "%s",
@@ -762,14 +762,14 @@ public:
             _M_attack_info._M_spin = __sp;
             if (_M_attack_info._M_spin == spin_type::NONE && 
                 _M_attack_info._M_type != attack_type::QUAD)
-                _M_attack_info._M_btb = 0;
+                _M_attack_info._M_btb = -1;
             else _M_attack_info._M_btb++;
             
             std::stringstream ss;
             ss << "[" << _M_attack_table->get(_M_attack_info) << "] "
                << _M_attack_info.to_string(_M_current->to_char());
             _M_attack_history.push_back(ss.str());
-            _M_save_stack[_M_save_idx]._M_attck_string = ss.str();
+            _M_save_buffer.current()._M_attck_string = ss.str();
 
             if (_M_attack_info._M_pc)
                 _M_set_meta(3, std::chrono::seconds(2));
@@ -789,16 +789,12 @@ public:
             }
         }
 
-        _M_placed++;
-        _M_save_idx = (_M_save_idx + 1) % _M_save_stack.size();
-        _M_last_idx = _M_save_idx;
-
         // Draw in spawn.
         spawn();
         _M_draw_field();
     }
 
-    void spawn(bool __new = true) {
+    void spawn(bool __new = true, bool __hold = false) {
         _M_draw_ghost_mino(true);
 
         if (__new)
@@ -840,13 +836,14 @@ public:
             } else { gameover(); return; }
         }
 
-        _M_holdable = true;
+        if (!__hold)
+            _M_holdable = true;
 
         _M_draw_ghost_mino();
         _M_draw_current_mino();
         _M_refresh_marked[0] = true;
 
-        if (__new) {
+        if (!__hold) {
             save_data __dt;
 
             __dt._M_field = _M_field;
@@ -855,9 +852,10 @@ public:
             __dt._M_queue = _M_queue;
             __dt._M_attack_info = _M_attack_info;
             __dt._M_attck_string = std::nullopt;
+            __dt._M_bag_data = _M_bag.save();
             __dt._M_rand = _M_rand;
 
-            _M_save_stack[_M_save_idx] = __dt;
+            _M_save_buffer.push(std::move(__dt));
         }
 
         _M_draw_next();
@@ -869,13 +867,13 @@ public:
 
         if (_M_hold) {
             swap(_M_current, _M_hold);
-            spawn(false);
+            spawn(false, true);
         }
         else {
             if (_M_queue.empty()) return;
 
             _M_hold = _M_current;
-            spawn();
+            spawn(true);
         }
 
         _M_hold->set_direction(0);
@@ -963,7 +961,7 @@ public:
         _M_hold = std::nullopt;
 
         _M_attack_info = {
-            attack_type::SINGLE, 0, 0, spin_type::NONE, false
+            attack_type::SINGLE, 0, -1, spin_type::NONE, false
         };
         _M_is_last_spin = false;
 
@@ -971,20 +969,12 @@ public:
     }
 
     void undo() {
-        if (_M_placed == 0) {
+        if (!_M_save_buffer.prev()) {
             _M_set_meta(0, std::chrono::seconds(3));
             return;
         }
 
-        u32 __idx = (_M_save_idx + _M_save_stack.size() - 1) % _M_save_stack.size();
-
-        if (_M_save_idx == __idx) {
-            _M_set_meta(2, std::chrono::seconds(3));
-            return;
-        }
-
-        save_data __dt = _M_save_stack[__idx];
-        _M_save_idx = __idx;
+        const save_data& __dt = _M_save_buffer.current();
 
         _M_field = __dt._M_field;
         _M_current = __dt._M_current;
@@ -993,12 +983,11 @@ public:
         _M_attack_info = __dt._M_attack_info;
         if (__dt._M_attck_string.has_value())
             _M_attack_history.pop_back();
+        _M_bag.load(__dt._M_bag_data);
         _M_rand = __dt._M_rand;
 
         _M_current_x = _M_field.width() / 2 - (_M_current->size() + 1) / 2;
         _M_current_y = _M_user_config.spawn.base_height;
-
-        _M_placed--;
 
         _M_reset_meta();
 
@@ -1006,27 +995,29 @@ public:
     }
 
     void redo() {
-        if (_M_save_idx == _M_last_idx) {
+        std::string __atk =
+            _M_save_buffer.current()._M_attck_string.has_value() ?
+            *_M_save_buffer.current()._M_attck_string : "";
+
+        if (!_M_save_buffer.next()) {
             _M_set_meta(1, std::chrono::seconds(3));
             return;
         }
 
-        _M_save_idx = (_M_save_idx + 1) % _M_save_stack.size();
-        save_data __dt = _M_save_stack[_M_save_idx];
+        const save_data& __dt = _M_save_buffer.current();
 
         _M_field = __dt._M_field;
         _M_current = __dt._M_current;
         _M_hold = __dt._M_hold;
         _M_queue = __dt._M_queue;
         _M_attack_info = __dt._M_attack_info;
-        if (_M_save_stack[_M_save_idx - 1]._M_attck_string.has_value())
-            _M_attack_history.push_back(*_M_save_stack[_M_save_idx - 1]._M_attck_string);
+        if (!__atk.empty())
+            _M_attack_history.push_back(__atk);
+        _M_bag.load(__dt._M_bag_data);
         _M_rand = __dt._M_rand;
 
         _M_current_x = _M_field.width() / 2 - (_M_current->size() + 1) / 2;
         _M_current_y = _M_user_config.spawn.base_height;
-
-        _M_placed++;
 
         _M_reset_meta();
 
