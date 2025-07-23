@@ -194,24 +194,21 @@ public:
      * @param current The index of the current element (default is 0).
      * @param start The index of the start element (default is 0).
      * @param last The index of the last element (default is 0).
-     * @param size The number of elements currently in the buffer (default is 0).
      */
     constexpr buffer(
         const std::array<T, N>& __data, 
         std::size_t __current = 0,
         std::size_t __start = 0,
-        std::size_t __last = 0,
-        std::size_t __size = 0
+        std::size_t __last = 0
     ) noexcept 
     : _M_data(__data), _M_current(__current), _M_start(__start),
-    _M_last(__last), _M_size(__size) {}
+    _M_last(__last) {}
 
 private:
     std::array<T, N> _M_data;
     size_type _M_current = -1; // -1 indicates no current element
     size_type _M_start = 0;
     size_type _M_last = 0;
-    size_type _M_size = 0;
 
 public:
     /**
@@ -231,8 +228,7 @@ public:
 
         _M_data[_M_current % N] = value;
 
-        if (_M_size == N) _M_start++;
-        else _M_size++;
+        if (_M_current == _M_last && size() == N) _M_start++;
     }
 
     /**
@@ -252,8 +248,7 @@ public:
 
         _M_data[_M_current % N] = std::move(value);
 
-        if (_M_size == N) _M_start++;
-        else _M_size++;
+        if (_M_current == _M_last && size() == N) _M_start++;
     }
 
     /**
@@ -274,7 +269,6 @@ public:
         _M_data[_M_last % N] = T(); // Clear the last element
         if (is_last()) _M_current--;
         _M_last--;
-        _M_size--;
     }
 
     /**
@@ -318,7 +312,6 @@ public:
         _M_current = -1;
         _M_start = 0;
         _M_last = 0;
-        _M_size = 0;
     }
 
     /**
@@ -356,11 +349,11 @@ public:
     /**
      * @brief Returns the number of elements in the buffer.
      */
-    constexpr size_type size() const noexcept { return _M_size; }
+    constexpr size_type size() const noexcept { return _M_last - _M_start; }
     /**
      * @brief Returns true if the buffer is empty.
      */
-    constexpr bool empty() const noexcept { return _M_size == 0; }
+    constexpr bool empty() const noexcept { return size() == 0; }
 
     iterator begin() { return iterator(this, _M_start); }
     iterator end() { return iterator(this, _M_last + 1); }
@@ -368,4 +361,11 @@ public:
     const_iterator end() const { return const_iterator(this, _M_last + 1); }
     const_iterator cbegin() const { return const_iterator(this, _M_start); }
     const_iterator cend() const { return const_iterator(this, _M_last + 1); }
+
+#ifdef DEBUG
+    size_type current_index() const noexcept { return _M_current; }
+    size_type start_index() const noexcept { return _M_start; }
+    size_type last_index() const noexcept { return _M_last; }
+    const std::array<T, N>& data() const noexcept { return _M_data; }
+#endif
 };

@@ -19,11 +19,6 @@ struct user_config {
         bool infinite = false;
     } hold;
 
-    struct next_config {
-        bool enabled = true;
-        u32 count = 5;
-    } next;
-
     struct field_config {
         // needs extra height for spawn mino and garbage.
         // default extra height is 4.
@@ -63,8 +58,6 @@ struct user_config {
     } control;
 
     struct game_config {
-        u32 fps = 60;
-
         u32 start_countdown = 3;
         u32 restart_countdown = 3;
 
@@ -73,6 +66,10 @@ struct user_config {
         attack_tables::types attack_table = attack_tables::types::tetrio;
         kick_tables::types kick_table = kick_tables::types::srs_plus;
         spin_tables::types spin_table = spin_tables::types::all_mini_plus;
+
+        bool enable_pc_b2b = true;
+
+        u32 next_queue_size = 5;
     } game;
 
     // TODO : Add more config options as needed

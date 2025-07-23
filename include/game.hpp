@@ -74,6 +74,7 @@ public:
         if (_M_windows._M_hold) delwin(_M_windows._M_hold);
         if (_M_windows._M_stats) delwin(_M_windows._M_stats);
         if (_M_windows._M_msg) delwin(_M_windows._M_msg);
+        if (_M_windows._M_meta) delwin(_M_windows._M_meta);
     }
 
 private:
@@ -105,6 +106,15 @@ private:
     // index of test in kick table if the last input was a spin.
     u32 _M_kick_index = 0;
 
+    struct stats_data {
+        u32 _M_lines = 0;
+        u32 _M_attack = 0;
+        u32 _M_b2b = 0;
+        u32 _M_combo = 0;
+        u32 _M_place_count = 0;
+        u32 _M_input_count = 0;
+    } _M_stats;
+
     std::vector<std::string> _M_attack_history;
 
     struct {
@@ -126,7 +136,6 @@ private:
     // otherwise it uses the specified countdown value.
     i32 _M_restart_countdown = -1;
 
-    u32 _M_frame_duration;
     u32 _M_frame_count = 0;
 
     /* For meta data */
@@ -155,6 +164,7 @@ private:
         std::optional<std::string> _M_attck_string;
         bag_save_data _M_bag_data;
         std::mt19937 _M_rand;
+        stats_data _M_stats;
     };
 
     buffer<save_data, 20> _M_save_buffer;
@@ -171,6 +181,8 @@ private:
     puzzle_function _M_puzzle_func = nullptr;
 
     /* ---------  */
+
+    u32 _S_frame_duration = 1000 / 60;
 
     inline static constexpr u16 _S_color_interval = 16;
     inline static constexpr u16 _S_color_start = 30;
@@ -236,11 +248,6 @@ private:
     }
 
     void _M_init() {
-        _M_frame_duration = 1000 / _M_user_config.game.fps;
-
-        // Setup tables for input
-
-
         for (u8 __i = 0; __i < 9u; __i++) {
             auto __color = _M_color->color(static_cast<block_type>(__i));
             _M_init_color(_S_normal_color + __i, __color, _S_normal_coloring);
@@ -254,27 +261,21 @@ private:
 
         i32 __left_space_width = 30,
             __width = __left_space_width + _M_field.width() * 2 + 4;
+        i32 __next_left_pos = __left_space_width + _M_field.width() * 2 + 4,
+            __next_height = _M_user_config.game.next_queue_size * 4 + 2;
 
         _M_windows._M_field = newwin(
             _M_field.height() + 2, _M_field.width() * 2 + 2,
             1, __left_space_width + 1
         );
         _M_windows._M_next = newwin(
-            _M_user_config.next.count * 4 + 2, 10,
-            1, _M_field.width() * 2 + __left_space_width + 4
+            __next_height, 10,
+            1, __next_left_pos
         );
         _M_windows._M_hold = newwin(6, 10, 1, __left_space_width - 10);
-        _M_windows._M_stats = newwin(14, __left_space_width, 13, 0);
+        _M_windows._M_stats = newwin(15, __left_space_width, 12, 0);
         _M_windows._M_msg = newwin(1, __width, 0, 0);
         _M_windows._M_meta = newwin(3, __left_space_width, 8, 0);
-        
-        box(_M_windows._M_field, 0, 0);
-        box(_M_windows._M_next, 0, 0);
-        box(_M_windows._M_hold, 0, 0);
-        box(_M_windows._M_stats, 0, 0);
-
-        mvwprintw(_M_windows._M_next, 0, 3, "Next");
-        mvwprintw(_M_windows._M_hold, 0, 3, "Hold");
 
         _M_refresh_marked = { true, true, true, true };
     }
@@ -296,7 +297,7 @@ private:
             }
         }
 
-        while (_M_queue.size() <= _M_user_config.next.count)
+        while (_M_queue.size() <= std::max(_M_user_config.game.next_queue_size, 3u))
             _M_queue.push_back(_M_bag.next());
 
         tetromino __next = _M_queue.front();
@@ -308,7 +309,8 @@ private:
         WINDOW* __win,
         const tetromino& __t,
         u32 __y, u32 __x,
-        bool __revision, bool __erase = false, bool __ghost = false
+        bool __revision, bool __erase = false, bool __ghost = false,
+        bool __current = false
     ) {
         u32 __px = __t.type() == mino_type::O ? 2 : 1,
             __py = __t.type() == mino_type::I ? 1 : 2;
@@ -318,8 +320,8 @@ private:
         if (!__revision) __px = 0, __py = 0;
 
         auto __attr =
-            __ghost ?
-            COLOR_PAIR(_S_guide_color + static_cast<u8>(__t.type())) :
+            __ghost ? COLOR_PAIR(_S_guide_color + static_cast<u8>(__t.type())) :
+            __current ? COLOR_PAIR(_S_locked_color + static_cast<u8>(__t.type())) :
             COLOR_PAIR(_S_normal_color + static_cast<u8>(__t.type()));
         
         for (u32 __j = 0; __j < __t.size(); ++__j) {
@@ -394,7 +396,7 @@ private:
         mvwprintw(_M_windows._M_next, 0, 3, "Next");
 
         auto iter = _M_queue.begin();
-        u32 __size = std::min<u32>(_M_user_config.next.count, _M_queue.size());
+        u32 __size = std::min<u32>(_M_user_config.game.next_queue_size, _M_queue.size());
         for (u32 __i = 0; __i < __size; ++__i, ++iter)
             _M_draw_mino(_M_windows._M_next, *iter, __i * 4, 1, true);
 
@@ -425,34 +427,20 @@ private:
         if (_M_user_config.game.mode == user_config::game_mode::puzzle) {
             mvwprintw(_M_windows._M_stats, 2, 1, "Solved count: %d", _M_solved_count);
         } else {
-
-            if (_M_attack_info._M_btb > 0)
-                mvwprintw(_M_windows._M_stats, 1, 1, "B2B x%d", _M_attack_info._M_btb);
-            else
-                mvwprintw(_M_windows._M_stats, 1, 1, "%s", std::string(28, ' ').c_str());
-
-            for (u32 __i = 0, __len = std::min<size_t>(_M_attack_history.size(), 5u); __i < __len; ++__i)
-                mvwprintw(_M_windows._M_stats, 2 + __i, 1, "%s",
-                    _M_attack_history[_M_attack_history.size() - __i - 1].c_str()
-                );
+            mvwprintw(_M_windows._M_stats, 2, 1, "Lines: %d", _M_stats._M_lines);
+            mvwprintw(_M_windows._M_stats, 3, 1, "Attack: %d", _M_stats._M_attack);
+            mvwprintw(_M_windows._M_stats, 4, 1, "B2B: %d", _M_stats._M_b2b);
+            mvwprintw(_M_windows._M_stats, 5, 1, "Combo: %d", _M_stats._M_combo);
+            mvwprintw(_M_windows._M_stats, 6, 1, "Placed: %d", _M_stats._M_place_count);
+            mvwprintw(_M_windows._M_stats, 7, 1, "Input: %d", _M_stats._M_input_count);
         }
-
-        // Disable clock because of performance issues.
-        /*
-        auto __elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-            clock_type::now() - _M_start_time
-        ).count();
-
-        decltype(__elapsed)
-            __hours = __elapsed / 3600,
-            __minutes = (__elapsed % 3600) / 60,
-            __seconds = __elapsed % 60;
-
-        mvwprintw(_M_windows._M_stats, 1, 1, "Time: %s%02ld:%02ld",
-            __hours > 0 ? (std::to_string(__hours) + ":").c_str() : "",
-            __minutes, __seconds
+#ifdef DEBUG
+        mvwprintw(_M_windows._M_stats, 8, 1, "%ld : [%ld, %ld)",
+            _M_save_buffer.current_index(),
+            _M_save_buffer.start_index(),
+            _M_save_buffer.last_index()
         );
-        */
+#endif
 
         _M_refresh_marked[3] = true;
     }
@@ -469,7 +457,7 @@ private:
             _M_field.height() - _M_current_y,
             _M_current_x * 2 + 1,
             false,
-            __erase
+            __erase, false, true
         );
 
 
@@ -575,7 +563,7 @@ private:
 
             _M_restart_countdown = 0;
         } else {
-            while (_M_queue.size() < _M_user_config.next.count)
+            while (_M_queue.size() < std::max(_M_user_config.game.next_queue_size, 3u))
                 _M_queue.push_back(_M_bag.next());
         }
         
@@ -624,8 +612,7 @@ private:
     void _M_set_meta(u32 __idx, std::chrono::duration<Rep2, Period2> __time) {
         _M_meta_idx = __idx;
         _M_meta_time =
-            std::chrono::duration_cast<std::chrono::seconds>(__time).count() *
-            _M_user_config.game.fps;
+            std::chrono::duration_cast<std::chrono::seconds>(__time).count() * 60;
         _M_meta_drawn = false;
     }
 
@@ -761,24 +748,33 @@ public:
             _M_attack_info._M_combo++;
             _M_attack_info._M_spin = __sp;
             if (_M_attack_info._M_spin == spin_type::NONE && 
-                _M_attack_info._M_type != attack_type::QUAD)
+                _M_attack_info._M_type != attack_type::QUAD && !(
+                    _M_user_config.game.enable_pc_b2b &&
+                    _M_attack_info._M_pc
+                ))
                 _M_attack_info._M_btb = -1;
             else _M_attack_info._M_btb++;
             
-            std::stringstream ss;
-            ss << "[" << _M_attack_table->get(_M_attack_info) << "] "
-               << _M_attack_info.to_string(_M_current->to_char());
-            _M_attack_history.push_back(ss.str());
-            _M_save_buffer.current()._M_attck_string = ss.str();
+            u32 __atk = _M_attack_table->get(_M_attack_info);
+
+            _M_attack_history.push_back(_M_attack_info.to_string(_M_current->to_char()));
+            _M_save_buffer.current()._M_attck_string = _M_attack_history.back();
 
             if (_M_attack_info._M_pc)
                 _M_set_meta(3, std::chrono::seconds(2));
+            
+            _M_stats._M_lines += __lines;
+            _M_stats._M_attack += __atk;
         } else {
             _M_attack_info._M_pc = false;
             _M_attack_info._M_type = attack_type::SINGLE;
             _M_attack_info._M_combo = 0;
             _M_attack_info._M_spin = spin_type::NONE;
         }
+
+        _M_stats._M_b2b = _M_attack_info._M_btb;
+        _M_stats._M_combo = _M_attack_info._M_combo;
+        _M_stats._M_place_count++;
 
         if (_M_user_config.game.mode == user_config::game_mode::puzzle) {
             if (_M_puzzle_func) {
@@ -854,6 +850,7 @@ public:
             __dt._M_attck_string = std::nullopt;
             __dt._M_bag_data = _M_bag.save();
             __dt._M_rand = _M_rand;
+            __dt._M_stats = _M_stats;
 
             _M_save_buffer.push(std::move(__dt));
         }
@@ -873,7 +870,7 @@ public:
             if (_M_queue.empty()) return;
 
             _M_hold = _M_current;
-            spawn(true);
+            spawn(true, true);
         }
 
         _M_hold->set_direction(0);
@@ -920,6 +917,8 @@ public:
             case control_key::REDO: redo(); break;
             default: break;
         }
+
+        _M_stats._M_input_count++;
     }
 
     void garbage(u32 __cnt, i32 __hole = -1) {
@@ -960,10 +959,14 @@ public:
         _M_current = std::nullopt;
         _M_hold = std::nullopt;
 
+        _M_save_buffer.clear();
+
         _M_attack_info = {
             attack_type::SINGLE, 0, -1, spin_type::NONE, false
         };
         _M_is_last_spin = false;
+
+        _M_stats = {};
 
         _M_attack_history.clear();
     }
@@ -985,6 +988,7 @@ public:
             _M_attack_history.pop_back();
         _M_bag.load(__dt._M_bag_data);
         _M_rand = __dt._M_rand;
+        _M_stats = __dt._M_stats;
 
         _M_current_x = _M_field.width() / 2 - (_M_current->size() + 1) / 2;
         _M_current_y = _M_user_config.spawn.base_height;
@@ -1015,6 +1019,7 @@ public:
             _M_attack_history.push_back(__atk);
         _M_bag.load(__dt._M_bag_data);
         _M_rand = __dt._M_rand;
+        _M_stats = __dt._M_stats;
 
         _M_current_x = _M_field.width() / 2 - (_M_current->size() + 1) / 2;
         _M_current_y = _M_user_config.spawn.base_height;
@@ -1026,7 +1031,7 @@ public:
 
     bool restart_requested() const { return _M_restart_req; }
     bool is_running() const { return _M_running; }
-    u32 frame_duration() const { return _M_frame_duration; }
+    u32 frame_duration() const { return _S_frame_duration; }
 
     u32 get_fps() {
         u32 __rate = _M_frame_count;

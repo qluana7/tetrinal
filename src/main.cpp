@@ -40,8 +40,8 @@ int main(int argc, char** argv) {
     user_config __config;
     __config.hold.infinite = true;
     __config.control.inf_soft_drop = true;
-    __config.game.fps = 120;
     __config.game.start_countdown = 0;
+    __config.game.restart_countdown = 0;
     // __config.game.mode = user_config::game_mode::puzzle;
 
     std::mt19937 engine(std::random_device{}());
