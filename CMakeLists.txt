@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(tetrinal_project
     VERSION 0.3.1
-    DESCRIPTION "Simulate no-gravity tetris zen. It support SRS and damage system, all spin, bags, etc."
+    DESCRIPTION "Simulate no-gravity stacking block in your terminal. Supports SRS, damage system, all spins, bag randomizer, and more."
     LANGUAGES CXX
 )
 

@@ -6,15 +6,15 @@
   </ul>
 </div>
 
-<p align="center"><i>Simulate no-gravity Tetris Zen in your terminal. Supports SRS, damage system, all spins, bag randomizer, and more.</i></p>
+<p align="center"><i>Simulate no-gravity stacking block in your terminal. Supports SRS, damage system, all spins, bag randomizer, and more.</i></p>
 
 ## Overview
 
-`tetrinal` is a terminal-based Tetris simulation that focuses on "no-gravity" zen play. It supports modern Tetris standards and mechanics.
+`tetrinal` is a terminal-based block stacking simulation that focuses on "no-gravity" zen play. It supports lot of mechanics.
 
 ## Features
 
-- **No-Gravity Tetris Zen:** Play at your own pace, no gravity pressure.
+- **No-Gravity Stacking:** Play at your own pace, no gravity pressure.
 - **SRS & All Spins:** Full support for SRS kicks and spin recognition.
 - **Damage System:** Configurable damage and line clear rules.
 - **Bag Randomizer:** True 7-bag shuffling for piece distribution.
@@ -75,5 +75,3 @@ Controls (default):
 Feel free to open issues, suggest features, or submit pull requests! Please follow standard C++ coding conventions and include usage comments for new features.
 
 ---
-
-Inspired by classic games and modern Tetris clients.
